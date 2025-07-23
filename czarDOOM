@@ -204,12 +204,25 @@
       const pz = (Math.random()-0.5)*10;
       enemy.position.set(px,0,pz);
 
-      // hp + kierunek
-      enemy.userData = { hp:5, dir: new THREE.Vector3() };
+      // hp, kierunek i dane ruchu
+      enemy.userData = {
+        hp: 5,
+        dir: new THREE.Vector3(),        // aktualny kierunek chodzenia
+        changeTimer: 0,                   // licznik do zmiany kierunku
+        centerX: i*25,                    // srodek pomieszczenia
+        size: 20                          // polowa szerokosci pomieszczenia
+      };
+
+      setRandomDir(enemy);
 
       scene.add(enemy);
       enemies.push(enemy);
     }
+  }
+
+  function setRandomDir(enemy){
+    enemy.userData.dir.set(Math.random()-0.5, 0, Math.random()-0.5).normalize();
+    enemy.userData.changeTimer = Math.random()*120 + 60; // 1-3 sekundy
   }
 
   function resetGame(){
@@ -289,8 +302,16 @@
 
     // AI wrogów
     enemies.forEach(e=>{
-      e.userData.dir.set(Math.random()-0.5, 0, Math.random()-0.5).normalize();
+      e.userData.changeTimer--;
+      // zmiana kierunku co jakis czas lub przy opuszczaniu pokoju
+      if(e.userData.changeTimer <= 0 ||
+         Math.abs(e.position.x - e.userData.centerX) > e.userData.size ||
+         Math.abs(e.position.z) > e.userData.size){
+        setRandomDir(e);
+      }
+
       e.position.addScaledVector(e.userData.dir, 0.02);
+
       if(Math.random()<0.01){
         const geo = new THREE.SphereGeometry(0.1,8,8);
         const mat = new THREE.MeshBasicMaterial({ color:0xff0000 });
