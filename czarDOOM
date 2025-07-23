@@ -98,13 +98,13 @@
 
     // prosty 3D‑model broni
     const weapon = new THREE.Group();
-    const barrelGeo = new THREE.BoxGeometry(0.1,0.1,1);
-    const barrelMat = new THREE.MeshStandardMaterial({ color:0x422222 });
-    const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+    const barrelGeo  = new THREE.BoxGeometry(0.1,0.1,1);
+    const barrelMat  = new THREE.MeshStandardMaterial({ color: 0x422222 });
+    const barrel     = new THREE.Mesh(barrelGeo, barrelMat);
     barrel.position.set(0.2, -0.2, -0.5);
     weapon.add(barrel);
-    const handleGeo = new THREE.BoxGeometry(0.05,0.2,0.05);
-    const handle = new THREE.Mesh(handleGeo, barrelMat);
+    const handleGeo  = new THREE.BoxGeometry(0.05,0.2,0.05);
+    const handle     = new THREE.Mesh(handleGeo, barrelMat);
     handle.position.set(0, -0.15, -0.2);
     weapon.add(handle);
     camera.add(weapon);
@@ -119,7 +119,7 @@
     // podłoga
     const floorMat = new THREE.MeshStandardMaterial({ color:0x444444 });
     const floorGeo = new THREE.PlaneGeometry(1000,1000);
-    const floor = new THREE.Mesh(floorGeo, floorMat);
+    const floor    = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI/2;
     scene.add(floor);
 
@@ -207,12 +207,26 @@
       const pz = (Math.random()-0.5)*ROOM_SIZE*0.5;
       enemy.position.set(px,0,pz);
 
-      // hp + kierunek i timer zmiany kierunku
-      enemy.userData = { hp:5, dir:new THREE.Vector3(), step:0 };
+      // hp, kierunek i dane ruchu
+      enemy.userData = {
+        hp: 5,
+        dir: new THREE.Vector3(),        // aktualny kierunek chodzenia
+        changeTimer: 0,                   // licznik do zmiany kierunku
+        centerX: i*ROOM_STEP,             // środek pomieszczenia
+        size: ROOM_SIZE/2                 // połowa szerokości pokoju
+      };
+      setRandomDir(enemy);
 
       scene.add(enemy);
       enemies.push(enemy);
     }
+  }
+
+  function setRandomDir(enemy){
+    enemy.userData.dir
+      .set(Math.random()-0.5, 0, Math.random()-0.5)
+      .normalize();
+    enemy.userData.changeTimer = Math.random()*120 + 60; // 1–3 sekundy
   }
 
   function resetGame(){
@@ -292,19 +306,17 @@
 
     // AI wrogów
     enemies.forEach(e=>{
-      if(e.userData.step <= 0){
-        e.userData.dir.set(Math.random()-0.5, 0, Math.random()-0.5).normalize();
-        e.userData.step = 50 + Math.random()*150;
+      e.userData.changeTimer--;
+      if(
+        e.userData.changeTimer <= 0 ||
+        Math.abs(e.position.x - e.userData.centerX) > e.userData.size ||
+        Math.abs(e.position.z) > e.userData.size
+      ){
+        setRandomDir(e);
       }
-      const next = e.position.clone().addScaledVector(e.userData.dir, 0.02);
-      const centerX = roomIndex * ROOM_STEP;
-      if(Math.abs(next.x - centerX) > ROOM_SIZE/2 || Math.abs(next.z) > ROOM_SIZE/2){
-        e.userData.step = 0;
-      } else {
-        e.position.copy(next);
-        e.userData.step--;
-      }
-      if(Math.random()<0.01){
+      e.position.addScaledVector(e.userData.dir, 0.02);
+
+      if(Math.random() < 0.01){
         const geo = new THREE.SphereGeometry(0.1,8,8);
         const mat = new THREE.MeshBasicMaterial({ color:0xff0000 });
         const b   = new THREE.Mesh(geo, mat);
@@ -318,7 +330,7 @@
     });
 
     // przejście pokoju lub koniec
-    if(enemies.length===0){
+    if(enemies.length === 0){
       if(roomIndex+1 < TOTAL_ROOMS){
         bullets.concat(enemyBullets).forEach(b=>scene.remove(b));
         startRoom(roomIndex+1);
@@ -326,7 +338,7 @@
         alert('Wygrywasz!'); toggleMenu();
       }
     }
-    if(HP<=0){
+    if(HP <= 0){
       alert('Przegrałeś :('); toggleMenu();
     }
 
