@@ -63,6 +63,9 @@
   let roomIndex = 0, HP = 10000;
   const TOTAL_ROOMS      = 10;
   const ENEMIES_PER_ROOM = 5;
+  const ROOM_SIZE        = 40;
+  const ROOM_GAP         = 5;
+  const ROOM_STEP        = ROOM_SIZE + ROOM_GAP;
 
   // tekstura główki patyczaków
   const headTexture = new THREE.TextureLoader().load(
@@ -95,13 +98,13 @@
 
     // prosty 3D‑model broni
     const weapon = new THREE.Group();
-    const barrelGeo = new THREE.BoxGeometry(0.1,0.1,1);
-    const barrelMat = new THREE.MeshStandardMaterial({ color:0x422222 });
-    const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+    const barrelGeo  = new THREE.BoxGeometry(0.1,0.1,1);
+    const barrelMat  = new THREE.MeshStandardMaterial({ color: 0x422222 });
+    const barrel     = new THREE.Mesh(barrelGeo, barrelMat);
     barrel.position.set(0.2, -0.2, -0.5);
     weapon.add(barrel);
-    const handleGeo = new THREE.BoxGeometry(0.05,0.2,0.05);
-    const handle = new THREE.Mesh(handleGeo, barrelMat);
+    const handleGeo  = new THREE.BoxGeometry(0.05,0.2,0.05);
+    const handle     = new THREE.Mesh(handleGeo, barrelMat);
     handle.position.set(0, -0.15, -0.2);
     weapon.add(handle);
     camera.add(weapon);
@@ -116,26 +119,26 @@
     // podłoga
     const floorMat = new THREE.MeshStandardMaterial({ color:0x444444 });
     const floorGeo = new THREE.PlaneGeometry(1000,1000);
-    const floor = new THREE.Mesh(floorGeo, floorMat);
+    const floor    = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI/2;
     scene.add(floor);
 
     // budowanie pokoi
-    const size = 40, height = 20;
+    const height = 20;
     for(let i=0; i<TOTAL_ROOMS; i++){
       const room = new THREE.Group();
       const tex  = new THREE.TextureLoader().load('https://i.imgur.com/wsUxz75.jpeg');
       const mat  = new THREE.MeshStandardMaterial({ map: tex });
       ['front','back','left','right'].forEach(side=>{
-        const geo = new THREE.PlaneGeometry(size, height);
+        const geo = new THREE.PlaneGeometry(ROOM_SIZE, height);
         const mesh = new THREE.Mesh(geo, mat);
-        if(side==='front') mesh.position.set(0, height/2, -size/2);
-        if(side==='back')  { mesh.position.set(0, height/2, size/2); mesh.rotation.y = Math.PI; }
-        if(side==='left')  { mesh.position.set(-size/2, height/2, 0); mesh.rotation.y = Math.PI/2; }
-        if(side==='right') { mesh.position.set(size/2, height/2, 0); mesh.rotation.y = -Math.PI/2; }
+        if(side==='front') mesh.position.set(0, height/2, -ROOM_SIZE/2);
+        if(side==='back')  { mesh.position.set(0, height/2, ROOM_SIZE/2); mesh.rotation.y = Math.PI; }
+        if(side==='left')  { mesh.position.set(-ROOM_SIZE/2, height/2, 0); mesh.rotation.y = Math.PI/2; }
+        if(side==='right') { mesh.position.set(ROOM_SIZE/2, height/2, 0); mesh.rotation.y = -Math.PI/2; }
         room.add(mesh);
       });
-      room.position.x = i * (size + 5);
+      room.position.x = i * ROOM_STEP;
       scene.add(room);
     }
 
@@ -177,7 +180,7 @@
     enemyBullets.length = 0;
 
     // reset pozycji i HP
-    controls.getObject().position.set(i*25, 2, 0);
+    controls.getObject().position.set(i*ROOM_STEP, 2, 0);
     roomIndex = i;
     overlayRoom.textContent = i+1;
     HP = 10000; overlayHP.textContent = HP;
@@ -200,8 +203,8 @@
       enemy.add(head);
 
       // pozycja losowa
-      const px = i*25 + (Math.random()-0.5)*10;
-      const pz = (Math.random()-0.5)*10;
+      const px = i*ROOM_STEP + (Math.random()-0.5)*ROOM_SIZE*0.5;
+      const pz = (Math.random()-0.5)*ROOM_SIZE*0.5;
       enemy.position.set(px,0,pz);
 
       // hp, kierunek i dane ruchu
@@ -209,10 +212,9 @@
         hp: 5,
         dir: new THREE.Vector3(),        // aktualny kierunek chodzenia
         changeTimer: 0,                   // licznik do zmiany kierunku
-        centerX: i*25,                    // srodek pomieszczenia
-        size: 20                          // polowa szerokosci pomieszczenia
+        centerX: i*ROOM_STEP,             // środek pomieszczenia
+        size: ROOM_SIZE/2                 // połowa szerokości pokoju
       };
-
       setRandomDir(enemy);
 
       scene.add(enemy);
@@ -221,8 +223,10 @@
   }
 
   function setRandomDir(enemy){
-    enemy.userData.dir.set(Math.random()-0.5, 0, Math.random()-0.5).normalize();
-    enemy.userData.changeTimer = Math.random()*120 + 60; // 1-3 sekundy
+    enemy.userData.dir
+      .set(Math.random()-0.5, 0, Math.random()-0.5)
+      .normalize();
+    enemy.userData.changeTimer = Math.random()*120 + 60; // 1–3 sekundy
   }
 
   function resetGame(){
@@ -303,16 +307,16 @@
     // AI wrogów
     enemies.forEach(e=>{
       e.userData.changeTimer--;
-      // zmiana kierunku co jakis czas lub przy opuszczaniu pokoju
-      if(e.userData.changeTimer <= 0 ||
-         Math.abs(e.position.x - e.userData.centerX) > e.userData.size ||
-         Math.abs(e.position.z) > e.userData.size){
+      if(
+        e.userData.changeTimer <= 0 ||
+        Math.abs(e.position.x - e.userData.centerX) > e.userData.size ||
+        Math.abs(e.position.z) > e.userData.size
+      ){
         setRandomDir(e);
       }
-
       e.position.addScaledVector(e.userData.dir, 0.02);
 
-      if(Math.random()<0.01){
+      if(Math.random() < 0.01){
         const geo = new THREE.SphereGeometry(0.1,8,8);
         const mat = new THREE.MeshBasicMaterial({ color:0xff0000 });
         const b   = new THREE.Mesh(geo, mat);
@@ -326,7 +330,7 @@
     });
 
     // przejście pokoju lub koniec
-    if(enemies.length===0){
+    if(enemies.length === 0){
       if(roomIndex+1 < TOTAL_ROOMS){
         bullets.concat(enemyBullets).forEach(b=>scene.remove(b));
         startRoom(roomIndex+1);
@@ -334,7 +338,7 @@
         alert('Wygrywasz!'); toggleMenu();
       }
     }
-    if(HP<=0){
+    if(HP <= 0){
       alert('Przegrałeś :('); toggleMenu();
     }
 
