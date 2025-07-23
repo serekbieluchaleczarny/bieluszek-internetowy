@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Doom‑Like</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+
+    /* overlay z HP/pokojem */
+    #overlay {
+      position: absolute;
+      top: 10px; left: 10px;
+      color: white; font-family: sans-serif;
+      z-index: 2;
+    }
+
+    /* menu pauzy */
+    #menu {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.9);
+      padding: 20px;
+      color: white;
+      text-align: center;
+      display: none;
+      border-radius: 8px;
+      z-index: 3;
+    }
+    #menu button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 1em;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <!-- ===== HTML ===== -->
+  <div id="overlay">
+    HP: <span id="hp">10000</span> | Pokój: <span id="room">1</span>/10
+  </div>
+
+  <div id="menu">
+    <h2>MENU</h2>
+    <button id="btnRestart">Restart</button>
+    <button id="btnExit">Wyjście</button>
+  </div>
+
+  <!-- three.js UMD -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.141.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.141.0/examples/js/controls/PointerLockControls.js"></script>
+
+  <script>
+  // ===== JS =====
+  let scene, camera, renderer, controls;
+  let bullets = [], enemies = [], enemyBullets = [];
+  let velocity = new THREE.Vector3();
+  const GRAVITY = -0.005;
+  let canJump = false;
+
+  let roomIndex = 0, HP = 10000;
+  const TOTAL_ROOMS      = 10;
+  const ENEMIES_PER_ROOM = 5;
+
+  // tekstura główki patyczaków
+  const headTexture = new THREE.TextureLoader().load(
+    'https://i.imgur.com/fdBPEF0.png'
+  );
+
+  // elementy UI
+  const overlayHP   = document.getElementById('hp');
+  const overlayRoom = document.getElementById('room');
+  const menu        = document.getElementById('menu');
+  const btnRestart  = document.getElementById('btnRestart');
+  const btnExit     = document.getElementById('btnExit');
+  const move        = { forward:0, back:0, left:0, right:0 };
+
+  initScene();
+  showMenu();
+
+  function initScene(){
+    // scena, kamera, renderer
+    scene    = new THREE.Scene();
+    camera   = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({ antialias:true });
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // FPS‑kontrolki
+    controls = new THREE.PointerLockControls(camera, renderer.domElement);
+    scene.add(controls.getObject());
+    document.addEventListener('click', () => controls.lock());
+
+    // prosty 3D‑model broni
+    const weapon = new THREE.Group();
+    const barrelGeo = new THREE.BoxGeometry(0.1,0.1,1);
+    const barrelMat = new THREE.MeshStandardMaterial({ color:0x422222 });
+    const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+    barrel.position.set(0.2, -0.2, -0.5);
+    weapon.add(barrel);
+    const handleGeo = new THREE.BoxGeometry(0.05,0.2,0.05);
+    const handle = new THREE.Mesh(handleGeo, barrelMat);
+    handle.position.set(0, -0.15, -0.2);
+    weapon.add(handle);
+    camera.add(weapon);
+    scene.add(camera);
+
+    // oświetlenie
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
+    dirLight.position.set(1,1,1);
+    scene.add(dirLight);
+    scene.add(new THREE.AmbientLight(0x404040));
+
+    // podłoga
+    const floorMat = new THREE.MeshStandardMaterial({ color:0x444444 });
+    const floorGeo = new THREE.PlaneGeometry(1000,1000);
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI/2;
+    scene.add(floor);
+
+    // budowanie pokoi
+    const size = 40, height = 20;
+    for(let i=0; i<TOTAL_ROOMS; i++){
+      const room = new THREE.Group();
+      const tex  = new THREE.TextureLoader().load('https://i.imgur.com/wsUxz75.jpeg');
+      const mat  = new THREE.MeshStandardMaterial({ map: tex });
+      ['front','back','left','right'].forEach(side=>{
+        const geo = new THREE.PlaneGeometry(size, height);
+        const mesh = new THREE.Mesh(geo, mat);
+        if(side==='front') mesh.position.set(0, height/2, -size/2);
+        if(side==='back')  { mesh.position.set(0, height/2, size/2); mesh.rotation.y = Math.PI; }
+        if(side==='left')  { mesh.position.set(-size/2, height/2, 0); mesh.rotation.y = Math.PI/2; }
+        if(side==='right') { mesh.position.set(size/2, height/2, 0); mesh.rotation.y = -Math.PI/2; }
+        room.add(mesh);
+      });
+      room.position.x = i * (size + 5);
+      scene.add(room);
+    }
+
+    // wejście
+    document.addEventListener('keydown', e=>{
+      if(e.code==='KeyW') move.forward = 1;
+      if(e.code==='KeyS') move.back    = 1;
+      if(e.code==='KeyA') move.left    = 1;
+      if(e.code==='KeyD') move.right   = 1;
+      if(e.code==='Space' && canJump){
+        velocity.y = 0.2; canJump = false;
+      }
+      if(e.code==='Escape') toggleMenu();
+    });
+    document.addEventListener('keyup', e=>{
+      if(e.code==='KeyW') move.forward = 0;
+      if(e.code==='KeyS') move.back    = 0;
+      if(e.code==='KeyA') move.left    = 0;
+      if(e.code==='KeyD') move.right   = 0;
+    });
+    renderer.domElement.addEventListener('mousedown', shoot);
+
+    // przyciski menu
+    btnRestart.addEventListener('click', resetGame);
+    btnExit   .addEventListener('click', ()=> window.close());
+
+    animate();
+  }
+
+  function showMenu(){
+    menu.style.display = 'block';
+    controls.unlock();
+  }
+
+  function startRoom(i){
+    // wyczyść
+    enemies.length = 0;
+    bullets.length = 0;
+    enemyBullets.length = 0;
+
+    // reset pozycji i HP
+    controls.getObject().position.set(i*25, 2, 0);
+    roomIndex = i;
+    overlayRoom.textContent = i+1;
+    HP = 10000; overlayHP.textContent = HP;
+
+    // stwórz wrogów z główką
+    for(let j=0; j<ENEMIES_PER_ROOM; j++){
+      const enemy = new THREE.Group();
+      // ciało
+      const bodyGeo = new THREE.CylinderGeometry(0.5,0.5,2,8);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+      const body    = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.set(0,1,0);
+      enemy.add(body);
+
+      // głowa
+      const headGeo = new THREE.SphereGeometry(0.6,16,16);
+      const headMat = new THREE.MeshStandardMaterial({ map: headTexture });
+      const head    = new THREE.Mesh(headGeo, headMat);
+      head.position.set(0,2.2,0);
+      enemy.add(head);
+
+      // pozycja losowa
+      const px = i*25 + (Math.random()-0.5)*10;
+      const pz = (Math.random()-0.5)*10;
+      enemy.position.set(px,0,pz);
+
+      // hp + kierunek
+      enemy.userData = { hp:5, dir: new THREE.Vector3() };
+
+      scene.add(enemy);
+      enemies.push(enemy);
+    }
+  }
+
+  function resetGame(){
+    enemies.forEach(e=> scene.remove(e));
+    bullets.concat(enemyBullets).forEach(b=> scene.remove(b));
+    startRoom(0);
+    menu.style.display = 'none';
+    controls.lock();
+  }
+
+  function toggleMenu(){
+    if(menu.style.display === 'none'){
+      showMenu();
+    } else {
+      resetGame();
+    }
+  }
+
+  function shoot(){
+    if(menu.style.display!=='none') return;
+    const geo = new THREE.SphereGeometry(0.1,8,8);
+    const mat = new THREE.MeshBasicMaterial({ color:0xffff00 });
+    const b   = new THREE.Mesh(geo, mat);
+    b.position.copy(controls.getObject().position);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    b.userData = { dir, fromEnemy:false };
+    bullets.push(b);
+    scene.add(b);
+  }
+
+  function animate(){
+    requestAnimationFrame(animate);
+
+    // grawitacja
+    velocity.y += GRAVITY;
+    controls.getObject().position.y += velocity.y;
+    if(controls.getObject().position.y < 2){
+      velocity.y = 0;
+      controls.getObject().position.y = 2;
+      canJump = true;
+    }
+
+    // ruch WSAD
+    const speed = 0.1;
+    const obj   = controls.getObject();
+    if(controls.isLocked){
+      if(move.forward) obj.translateZ(-speed);
+      if(move.back)    obj.translateZ( speed);
+      if(move.left)    obj.translateX(-speed);
+      if(move.right)   obj.translateX( speed);
+    }
+
+    // update pocisków
+    bullets.concat(enemyBullets).forEach((b,i,arr)=>{
+      b.position.addScaledVector(b.userData.dir, 1);
+      if(b.userData.fromEnemy){
+        if(b.position.distanceTo(obj.position) < 1){
+          HP--; overlayHP.textContent = HP;
+          scene.remove(b); arr.splice(i,1);
+        }
+      } else {
+        enemies.forEach((e,ei)=>{
+          if(b.position.distanceTo(e.position) < 1){
+            e.userData.hp--;
+            scene.remove(b); arr.splice(i,1);
+            if(e.userData.hp<=0){
+              scene.remove(e); enemies.splice(ei,1);
+            }
+          }
+        });
+      }
+      if(b.position.distanceTo(obj.position) > 100){
+        scene.remove(b); arr.splice(i,1);
+      }
+    });
+
+    // AI wrogów
+    enemies.forEach(e=>{
+      e.userData.dir.set(Math.random()-0.5, 0, Math.random()-0.5).normalize();
+      e.position.addScaledVector(e.userData.dir, 0.02);
+      if(Math.random()<0.01){
+        const geo = new THREE.SphereGeometry(0.1,8,8);
+        const mat = new THREE.MeshBasicMaterial({ color:0xff0000 });
+        const b   = new THREE.Mesh(geo, mat);
+        b.position.copy(e.position);
+        const dir = new THREE.Vector3();
+        dir.subVectors(obj.position, e.position).normalize();
+        b.userData = { dir, fromEnemy:true };
+        enemyBullets.push(b);
+        scene.add(b);
+      }
+    });
+
+    // przejście pokoju lub koniec
+    if(enemies.length===0){
+      if(roomIndex+1 < TOTAL_ROOMS){
+        bullets.concat(enemyBullets).forEach(b=>scene.remove(b));
+        startRoom(roomIndex+1);
+      } else {
+        alert('Wygrywasz!'); toggleMenu();
+      }
+    }
+    if(HP<=0){
+      alert('Przegrałeś :('); toggleMenu();
+    }
+
+    renderer.render(scene, camera);
+  }
+  </script>
+</body>
+</html>
